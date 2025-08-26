@@ -9,9 +9,40 @@ import { TeamCard } from '@/components/team-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Users } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
+import { useDrop } from 'react-dnd';
+import { ItemTypes } from '@/components/player-card';
+
+function SquadDropZone() {
+    const { movePlayerToSquad } = useTeamBuilder();
+    const [{ isOver, canDrop }, drop] = useDrop(() => ({
+        accept: ItemTypes.PLAYER,
+        drop: (item: any) => {
+            if (item.location.type === 'team') {
+                movePlayerToSquad(item.player.id, item.location.teamId, item.location.slotIndex);
+            }
+        },
+        canDrop: (item: any) => item.location.type === 'team',
+        collect: (monitor) => ({
+            isOver: monitor.isOver(),
+            canDrop: monitor.canDrop(),
+        }),
+    }), [movePlayerToSquad]);
+
+    return (
+        <div 
+            ref={drop} 
+            className={`flex-grow border-2 border-dashed rounded-md transition-colors duration-200 ${isOver && canDrop ? 'bg-primary/20 border-primary' : 'border-border'}`}
+        >
+             <div className="text-center text-muted-foreground p-10 h-full flex flex-col items-center justify-center">
+                <Users className="h-8 w-8 mb-2" />
+                <p>Drop a player here to move them back to the squad.</p>
+            </div>
+        </div>
+    )
+}
 
 export default function FormTeamsPage() {
   const { unassignedPlayers, teams } = useTeamBuilder();
@@ -50,8 +81,8 @@ export default function FormTeamsPage() {
             <CardHeader>
               <CardTitle>Squad</CardTitle>
             </CardHeader>
-            <CardContent className="flex-grow overflow-hidden">
-              <ScrollArea className="h-full p-4 border rounded-md">
+            <CardContent className="flex-grow overflow-hidden flex flex-col gap-4">
+              <ScrollArea className="h-[50%] p-4 border rounded-md">
                 {unassignedPlayers.length > 0 ? (
                   <div className="space-y-2">
                     {unassignedPlayers.map((player) => (
@@ -64,6 +95,7 @@ export default function FormTeamsPage() {
                   </div>
                 )}
               </ScrollArea>
+              <SquadDropZone />
             </CardContent>
           </Card>
         </div>
