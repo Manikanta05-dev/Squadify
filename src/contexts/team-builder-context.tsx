@@ -113,27 +113,26 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
 
   const handleSetTeamDefinitions = (definitions: TeamDefinition[]) => {
     setTeamDefinitions(definitions);
-    setTeams(currentTeams => {
-        const newTeams = definitions.map(def => {
-            const existingTeam = currentTeams.find(t => t.id === def.id);
-            const newPlayers = new Array(def.size).fill(null);
-            
-            if (existingTeam) {
-                existingTeam.players.slice(0, def.size).forEach((p, i) => {
-                    newPlayers[i] = p;
-                });
-            }
-
-            return {
-                id: def.id,
-                name: def.name,
-                players: newPlayers,
-            };
-        });
-
-        const finalTeams = newTeams.filter(t => definitions.some(def => def.id === t.id));
-        return finalTeams;
+    
+    const reconciledTeams = definitions.map(def => {
+        const existingTeam = teams.find(t => t.id === def.id);
+        const players = new Array(def.size).fill(null);
+        
+        if (existingTeam) {
+            // Copy existing players, respecting the new size
+            existingTeam.players.slice(0, def.size).forEach((p, i) => {
+                players[i] = p;
+            });
+        }
+        
+        return {
+            id: def.id,
+            name: def.name,
+            players: players,
+        };
     });
+    
+    setTeams(reconciledTeams);
   };
 
   // Effect to derive unassigned players
