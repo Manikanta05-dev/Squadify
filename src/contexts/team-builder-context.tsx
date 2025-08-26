@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from 'react';
 import { Player, TeamDefinition, Team } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from './auth-context';
@@ -18,7 +18,6 @@ interface TeamBuilderContextType {
   teams: Team[];
   setTeams: React.Dispatch<React.SetStateAction<Team[]>>;
   unassignedPlayers: Player[];
-  setUnassignedPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
   movePlayerToTeam: (playerId: string, teamId: string, slotIndex: number) => void;
   movePlayerToSquad: (playerId: string, fromTeamId: string, fromSlotIndex: number) => void;
   swapPlayers: (
@@ -37,13 +36,16 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   const [teams, setTeams] = useState<Team[]>([]);
   const [unassignedPlayers, setUnassignedPlayers] = useState<Player[]>([]);
   const [loadingData, setLoadingData] = useState(true);
-  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
+  
+  // Ref to track if the initial data load has happened for the current user
+  const initialLoadDone = useRef(false);
 
-  // Effect to load data from Firestore when user logs in
+  // Effect to load data from Firestore on user change
   useEffect(() => {
     const loadData = async () => {
       if (user) {
         setLoadingData(true);
+        initialLoadDone.current = false;
         const userDocRef = doc(db, 'users', user.uid);
         try {
           const docSnap = await getDoc(userDocRef);
@@ -52,30 +54,40 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
             setSquad(data.squad || []);
             setTeamDefinitions(data.teamDefinitions || []);
             setTeams(data.teams || []);
+          } else {
+            // New user, doc doesn't exist, use empty defaults
+            setSquad([]);
+            setTeamDefinitions([]);
+            setTeams([]);
           }
         } catch (error) {
             console.error("Failed to load data:", error);
+            // On error, reset to safe defaults
+            setSquad([]);
+            setTeamDefinitions([]);
+            setTeams([]);
         } finally {
             setLoadingData(false);
-            setInitialDataLoaded(true);
+            initialLoadDone.current = true;
         }
       } else if (!authLoading) {
-        // No user, clear all data
+        // No user, clear all data and reset state
         setSquad([]);
         setTeamDefinitions([]);
         setTeams([]);
         setUnassignedPlayers([]);
         setLoadingData(false);
-        setInitialDataLoaded(false);
+        initialLoadDone.current = false;
       }
     };
     loadData();
   }, [user, authLoading]);
 
-  // Effect to save data to Firestore whenever it changes
+  // Effect to save data to Firestore whenever local data changes
   useEffect(() => {
     const saveData = async () => {
-      if (user && initialDataLoaded) {
+      // Only save if we have a user and the initial data load is complete
+      if (user && initialLoadDone.current) {
         try {
           const userDocRef = doc(db, 'users', user.uid);
           await setDoc(userDocRef, { squad, teamDefinitions, teams }, { merge: true });
@@ -85,19 +97,21 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
       }
     };
     saveData();
-  }, [user, squad, teamDefinitions, teams, initialDataLoaded]);
+  }, [user, squad, teamDefinitions, teams]);
   
   // Effect to derive teams from team definitions
   useEffect(() => {
-    if (!initialDataLoaded) return;
+    if (loadingData) return;
 
     const newTeams = teamDefinitions.map(def => {
       const existingTeam = teams.find(t => t.id === def.id);
       if (existingTeam) {
+        // If team exists, resize its player array but keep existing players
         const newPlayers = new Array(def.size).fill(null);
         existingTeam.players.slice(0, def.size).forEach((p, i) => newPlayers[i] = p);
         return { ...existingTeam, name: def.name, players: newPlayers };
       }
+      // If team is new, create it with the correct size
       return {
         id: def.id,
         name: def.name,
@@ -105,19 +119,20 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
       };
     });
 
-    // Only update if there's an actual change to prevent infinite loops
-    if (JSON.stringify(newTeams) !== JSON.stringify(teams)) {
-        setTeams(newTeams);
+    const finalTeams = newTeams.filter(t => teamDefinitions.some(def => def.id === t.id));
+
+    if (JSON.stringify(finalTeams) !== JSON.stringify(teams)) {
+        setTeams(finalTeams);
     }
-  }, [teamDefinitions, initialDataLoaded]); // Removed `teams` dependency
+  }, [teamDefinitions, loadingData]);
 
 
   // Effect to derive unassigned players
   useEffect(() => {
-    if (!initialDataLoaded) return;
+    if (loadingData) return;
     const assignedPlayerIds = new Set(teams.flatMap(t => t.players).filter(Boolean).map(p => p!.id));
     setUnassignedPlayers(squad.filter(p => !assignedPlayerIds.has(p.id)));
-  }, [squad, teams, initialDataLoaded]);
+  }, [squad, teams, loadingData]);
 
   
   const addPlayer = (player: Omit<Player, 'id'>) => {
@@ -139,14 +154,6 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         players: team.players.map(p => p?.id === playerId ? null : p)
     })));
   };
-  
-  const handleSetTeamDefinitions = (definitions: TeamDefinition[]) => {
-      setTeamDefinitions(definitions);
-  }
-
-  const handleSetTeams = (newTeams: Team[] | ((prevTeams: Team[]) => Team[])) => {
-    setTeams(newTeams);
-  };
 
   const movePlayerToTeam = (playerId: string, teamId: string, slotIndex: number) => {
     const player = squad.find(p => p.id === playerId);
@@ -166,7 +173,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
 
         // Add to new team
         const targetTeam = newTeams.find(t => t.id === teamId);
-        if (targetTeam && targetTeam.players[slotIndex] === null) { // Check if slot is empty
+        if (targetTeam && targetTeam.players[slotIndex] === null) {
             targetTeam.players[slotIndex] = player;
         }
         
@@ -201,7 +208,6 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         const team2 = newTeams.find(t => t.id === team2Id);
 
         if (team1 && team2) {
-          // Simple swap
           const temp = team1.players[slot1Index];
           team1.players[slot1Index] = team2.players[slot2Index];
           team2.players[slot2Index] = temp;
@@ -214,9 +220,9 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   return (
     <TeamBuilderContext.Provider value={{
       squad, addPlayer, updatePlayer, deletePlayer,
-      teamDefinitions, setTeamDefinitions: handleSetTeamDefinitions,
-      teams, setTeams: handleSetTeams,
-      unassignedPlayers, setUnassignedPlayers,
+      teamDefinitions, setTeamDefinitions,
+      teams, setTeams,
+      unassignedPlayers,
       movePlayerToTeam, movePlayerToSquad, swapPlayers,
       loadingData
     }}>
