@@ -22,6 +22,10 @@ const GeneratePlayersInputSchema = z.object({
 });
 export type GeneratePlayersInput = z.infer<typeof GeneratePlayersInputSchema>;
 
+const GeneratePlayersInternalInputSchema = GeneratePlayersInputSchema.extend({
+    existingSkillsString: z.string(),
+});
+
 const GeneratePlayersOutputSchema = z.object({
   players: z.array(PlayerSchema),
 });
@@ -33,13 +37,13 @@ export async function generatePlayers(input: GeneratePlayersInput): Promise<Gene
 
 const prompt = ai.definePrompt({
   name: 'generatePlayersPrompt',
-  input: { schema: GeneratePlayersInputSchema },
+  input: { schema: GeneratePlayersInternalInputSchema },
   output: { schema: GeneratePlayersOutputSchema },
   prompt: `You are a sports team manager assistant. Your task is to generate a list of fictional players.
 
 Generate a list of {{{count}}} players.
 Ensure the skills are diverse and interesting for a generic sports context.
-Avoid duplicating skills from this list of existing skills if possible: {{{jsonStringify existingSkills}}}
+Avoid duplicating skills from this list of existing skills if possible: {{{existingSkillsString}}}
 
 Provide a diverse set of names and genders for the players.
 `,
@@ -52,7 +56,10 @@ const generatePlayersFlow = ai.defineFlow(
     outputSchema: GeneratePlayersOutputSchema,
   },
   async (input) => {
-    const { output } = await prompt(input);
+    const { output } = await prompt({
+        ...input,
+        existingSkillsString: JSON.stringify(input.existingSkills),
+    });
     return output!;
   }
 );
