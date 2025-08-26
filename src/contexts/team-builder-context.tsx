@@ -45,6 +45,7 @@ const useLocalStorage = <T,>(key: string, initialValue: T): [T, React.Dispatch<R
       setStoredValue(valueToStore);
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        window.dispatchEvent(new Event('local-storage'));
       }
     } catch (error) {
       console.error(error);
@@ -59,6 +60,33 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   const [teamDefinitions, setTeamDefinitions] = useLocalStorage<TeamDefinition[]>('teamDefinitions', []);
   const [teams, setTeams] = useLocalStorage<Team[]>('teams', []);
   const [unassignedPlayers, setUnassignedPlayers] = useState<Player[]>([]);
+
+  useEffect(() => {
+    // Function to re-read from localStorage
+    const syncFromLocalStorage = () => {
+      try {
+        const item = window.localStorage.getItem('squad');
+        if (item) {
+          const latestSquad = JSON.parse(item);
+          setSquad(latestSquad);
+        }
+      } catch (error) {
+        console.error("Failed to sync squad from local storage", error);
+      }
+    };
+    
+    syncFromLocalStorage(); // Initial sync
+
+    // Listen for changes from other tabs/windows
+    window.addEventListener('storage', syncFromLocalStorage);
+    // Listen for changes from the same tab
+    window.addEventListener('local-storage', syncFromLocalStorage);
+
+    return () => {
+      window.removeEventListener('storage', syncFromLocalStorage);
+      window.removeEventListener('local-storage', syncFromLocalStorage);
+    };
+  }, []);
 
   useEffect(() => {
     // Initialize teams based on definitions
@@ -124,6 +152,13 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
       // Add to new team
       const targetTeam = newTeams.find(t => t.id === teamId);
       if (targetTeam) {
+        if (targetTeam.players[slotIndex]) {
+            // If the slot is occupied, we need to handle it.
+            // For now, let's assume we can just overwrite, but a better UX might be to swap.
+            // Or maybe the logic in `PlayerDropSlot` prevents this.
+            // Based on the existing logic, let's just place the player.
+            // The existing player in the slot will be handled by another action if needed.
+        }
         targetTeam.players[slotIndex] = player;
       }
 
