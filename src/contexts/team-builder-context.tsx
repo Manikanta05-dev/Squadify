@@ -39,17 +39,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   const [loadingData, setLoadingData] = useState(true);
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
 
-  const saveData = useCallback(async () => {
-    if (user && initialDataLoaded) {
-      try {
-        const userDocRef = doc(db, 'users', user.uid);
-        await setDoc(userDocRef, { squad, teamDefinitions, teams }, { merge: true });
-      } catch (error) {
-          console.error("Failed to save data:", error);
-      }
-    }
-  }, [user, squad, teamDefinitions, teams, initialDataLoaded]);
-
+  // Effect to load data from Firestore when user logs in
   useEffect(() => {
     const loadData = async () => {
       if (user) {
@@ -62,32 +52,42 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
             setSquad(data.squad || []);
             setTeamDefinitions(data.teamDefinitions || []);
             setTeams(data.teams || []);
-          } else {
-            // For a new user, this might be called after registration.
-            // The document might not exist yet. Let's not set anything,
-            // the registration function should create the initial doc.
           }
         } catch (error) {
-            console.error("Failed to load data, might be offline:", error);
+            console.error("Failed to load data:", error);
         } finally {
             setLoadingData(false);
             setInitialDataLoaded(true);
         }
       } else if (!authLoading) {
-        // No user, clear all data and reset flags
+        // No user, clear all data
         setSquad([]);
         setTeamDefinitions([]);
         setTeams([]);
         setUnassignedPlayers([]);
         setLoadingData(false);
-        setInitialDataLoaded(false); // Reset for next user
+        setInitialDataLoaded(false);
       }
     };
-    if (!authLoading) {
-      loadData();
-    }
+    loadData();
   }, [user, authLoading]);
 
+  // Effect to save data to Firestore whenever it changes
+  useEffect(() => {
+    const saveData = async () => {
+      if (user && initialDataLoaded) {
+        try {
+          const userDocRef = doc(db, 'users', user.uid);
+          await setDoc(userDocRef, { squad, teamDefinitions, teams }, { merge: true });
+        } catch (error) {
+            console.error("Failed to save data:", error);
+        }
+      }
+    };
+    saveData();
+  }, [user, squad, teamDefinitions, teams, initialDataLoaded]);
+  
+  // Effect to derive teams from team definitions
   useEffect(() => {
     if (!initialDataLoaded) return;
 
@@ -105,24 +105,20 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
       };
     });
 
-    const hasChanged = JSON.stringify(newTeams) !== JSON.stringify(teams);
-    if(hasChanged){
+    // Only update if there's an actual change to prevent infinite loops
+    if (JSON.stringify(newTeams) !== JSON.stringify(teams)) {
         setTeams(newTeams);
     }
-  }, [teamDefinitions, teams, initialDataLoaded]);
+  }, [teamDefinitions, initialDataLoaded]); // Removed `teams` dependency
 
 
+  // Effect to derive unassigned players
   useEffect(() => {
     if (!initialDataLoaded) return;
     const assignedPlayerIds = new Set(teams.flatMap(t => t.players).filter(Boolean).map(p => p!.id));
     setUnassignedPlayers(squad.filter(p => !assignedPlayerIds.has(p.id)));
   }, [squad, teams, initialDataLoaded]);
 
-  useEffect(() => {
-      if (initialDataLoaded) {
-          saveData();
-      }
-  }, [squad, teamDefinitions, teams, saveData]);
   
   const addPlayer = (player: Omit<Player, 'id'>) => {
     setSquad(s => [...s, { ...player, id: uuidv4() }]);
