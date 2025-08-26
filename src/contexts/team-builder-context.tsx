@@ -31,15 +31,16 @@ interface TeamBuilderContextType {
 const TeamBuilderContext = createContext<TeamBuilderContextType | undefined>(undefined);
 
 export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [squad, setSquad] = useState<Player[]>([]);
   const [teamDefinitions, setTeamDefinitions] = useState<TeamDefinition[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [unassignedPlayers, setUnassignedPlayers] = useState<Player[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
 
   const saveData = useCallback(async (data: { squad: Player[], teamDefinitions: TeamDefinition[], teams: Team[] }) => {
-    if (user) {
+    if (user && initialDataLoaded) {
       try {
         const userDocRef = doc(db, 'users', user.uid);
         await setDoc(userDocRef, data, { merge: true });
@@ -47,7 +48,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
           console.error("Failed to save data:", error);
       }
     }
-  }, [user]);
+  }, [user, initialDataLoaded]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -61,7 +62,8 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
           setTeamDefinitions(data.teamDefinitions || []);
           setTeams(data.teams || []);
         } else {
-          // New user, initialize with empty data
+          // This case should ideally be handled by registration,
+          // but as a fallback, we can initialize here.
           const initialData = { squad: [], teamDefinitions: [], teams: [] };
           await setDoc(userDocRef, initialData);
           setSquad(initialData.squad);
@@ -69,19 +71,23 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
           setTeams(initialData.teams);
         }
         setLoadingData(false);
-      } else {
+        setInitialDataLoaded(true);
+      } else if (!authLoading) {
         // No user, clear all data
         setSquad([]);
         setTeamDefinitions([]);
         setTeams([]);
         setUnassignedPlayers([]);
         setLoadingData(false);
+        setInitialDataLoaded(false);
       }
     };
     loadData();
-  }, [user]);
+  }, [user, authLoading]);
 
   useEffect(() => {
+    if (!initialDataLoaded) return;
+
     const newTeams = teamDefinitions.map(def => {
       const existingTeam = teams.find(t => t.id === def.id);
       if (existingTeam) {
@@ -100,88 +106,77 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
     if(hasChanged){
         setTeams(newTeams);
     }
-  }, [teamDefinitions, teams]);
+  }, [teamDefinitions, teams, initialDataLoaded]);
 
 
   useEffect(() => {
+    if (!initialDataLoaded) return;
     const assignedPlayerIds = new Set(teams.flatMap(t => t.players).filter(Boolean).map(p => p!.id));
     setUnassignedPlayers(squad.filter(p => !assignedPlayerIds.has(p.id)));
-  }, [squad, teams]);
+  }, [squad, teams, initialDataLoaded]);
 
-  const handleDataChange = (updater: (prev: { squad: Player[], teamDefinitions: TeamDefinition[], teams: Team[] }) => { squad: Player[], teamDefinitions: TeamDefinition[], teams: Team[] }) => {
-    const newState = updater({ squad, teamDefinitions, teams });
-    setSquad(newState.squad);
-    setTeamDefinitions(newState.teamDefinitions);
-    setTeams(newState.teams);
-    saveData(newState);
-  };
+  useEffect(() => {
+      if (initialDataLoaded) {
+          saveData({ squad, teamDefinitions, teams });
+      }
+  }, [squad, teamDefinitions, teams, initialDataLoaded, saveData]);
   
   const addPlayer = (player: Omit<Player, 'id'>) => {
-    handleDataChange(prev => ({
-        ...prev,
-        squad: [...prev.squad, { ...player, id: uuidv4() }]
-    }));
+    setSquad(s => [...s, { ...player, id: uuidv4() }]);
   };
 
   const updatePlayer = (updatedPlayer: Player) => {
-     handleDataChange(prev => ({
-        ...prev,
-        squad: prev.squad.map(p => p.id === updatedPlayer.id ? updatedPlayer : p),
-        teams: prev.teams.map(team => ({
-            ...team,
-            players: team.players.map(p => p?.id === updatedPlayer.id ? updatedPlayer : p)
-        }))
-    }));
+     setSquad(s => s.map(p => p.id === updatedPlayer.id ? updatedPlayer : p));
+     setTeams(currentTeams => currentTeams.map(team => ({
+         ...team,
+         players: team.players.map(p => p?.id === updatedPlayer.id ? updatedPlayer : p)
+     })));
   };
 
   const deletePlayer = (playerId: string) => {
-    handleDataChange(prev => ({
-        ...prev,
-        squad: prev.squad.filter(p => p.id !== playerId),
-        teams: prev.teams.map(team => ({
-            ...team,
-            players: team.players.map(p => p?.id === playerId ? null : p)
-        }))
-    }));
+    setSquad(s => s.filter(p => p.id !== playerId));
+    setTeams(currentTeams => currentTeams.map(team => ({
+        ...team,
+        players: team.players.map(p => p?.id === playerId ? null : p)
+    })));
   };
   
   const handleSetTeamDefinitions = (definitions: TeamDefinition[]) => {
       setTeamDefinitions(definitions);
-      saveData({ squad, teamDefinitions: definitions, teams });
   }
 
   const handleSetTeams = (newTeams: Team[] | ((prevTeams: Team[]) => Team[])) => {
-    const updatedTeams = typeof newTeams === 'function' ? newTeams(teams) : newTeams;
-    setTeams(updatedTeams);
-    saveData({ squad, teamDefinitions, teams: updatedTeams });
+    setTeams(newTeams);
   };
 
   const movePlayerToTeam = (playerId: string, teamId: string, slotIndex: number) => {
     const player = squad.find(p => p.id === playerId);
     if (!player) return;
 
-    const newTeams = teams.map(t => ({ ...t, players: [...t.players] }));
+    setTeams(currentTeams => {
+        const newTeams = currentTeams.map(t => ({ ...t, players: [...t.players] }));
 
-    // Remove from old team if exists
-    const oldTeam = newTeams.find(t => t.players.some(p => p?.id === playerId));
-    if (oldTeam) {
-        const oldSlotIndex = oldTeam.players.findIndex(p => p?.id === playerId);
-        if (oldSlotIndex !== -1) {
-            oldTeam.players[oldSlotIndex] = null;
+        // Remove from old team if exists
+        const oldTeam = newTeams.find(t => t.players.some(p => p?.id === playerId));
+        if (oldTeam) {
+            const oldSlotIndex = oldTeam.players.findIndex(p => p?.id === playerId);
+            if (oldSlotIndex !== -1) {
+                oldTeam.players[oldSlotIndex] = null;
+            }
         }
-    }
 
-    // Add to new team
-    const targetTeam = newTeams.find(t => t.id === teamId);
-    if (targetTeam) {
-        targetTeam.players[slotIndex] = player;
-    }
-    
-    handleSetTeams(newTeams);
+        // Add to new team
+        const targetTeam = newTeams.find(t => t.id === teamId);
+        if (targetTeam) {
+            targetTeam.players[slotIndex] = player;
+        }
+        
+        return newTeams;
+    });
   };
 
   const movePlayerToSquad = (playerId: string, fromTeamId: string, fromSlotIndex: number) => {
-    const newTeams = teams.map(t => {
+    setTeams(currentTeams => currentTeams.map(t => {
       if (t.id === fromTeamId) {
         const newPlayers = [...t.players];
         if (newPlayers[fromSlotIndex]?.id === playerId) {
@@ -190,8 +185,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         return { ...t, players: newPlayers };
       }
       return t;
-    });
-    handleSetTeams(newTeams);
+    }));
   };
 
   const swapPlayers = (
@@ -202,16 +196,18 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
     const player2 = squad.find(p => p.id === player2Id);
     if (!player1 || !player2) return;
 
-    const newTeams = teams.map(t => ({ ...t, players: [...t.players] }));
-    const team1 = newTeams.find(t => t.id === team1Id);
-    const team2 = newTeams.find(t => t.id === team2Id);
+    setTeams(currentTeams => {
+        const newTeams = currentTeams.map(t => ({ ...t, players: [...t.players] }));
+        const team1 = newTeams.find(t => t.id === team1Id);
+        const team2 = newTeams.find(t => t.id === team2Id);
 
-    if (team1 && team2) {
-      team1.players[slot1Index] = player2;
-      team2.players[slot2Index] = player1;
-    }
+        if (team1 && team2) {
+          team1.players[slot1Index] = player2;
+          team2.players[slot2Index] = player1;
+        }
 
-    handleSetTeams(newTeams);
+        return newTeams;
+    });
   };
 
   return (
