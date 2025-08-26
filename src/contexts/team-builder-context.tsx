@@ -40,8 +40,12 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
 
   const saveData = useCallback(async (data: { squad: Player[], teamDefinitions: TeamDefinition[], teams: Team[] }) => {
     if (user) {
-      const userDocRef = doc(db, 'users', user.uid);
-      await setDoc(userDocRef, data, { merge: true });
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, data, { merge: true });
+      } catch (error) {
+          console.error("Failed to save data:", error);
+      }
     }
   }, [user]);
 
@@ -58,9 +62,11 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
           setTeams(data.teams || []);
         } else {
           // New user, initialize with empty data
-          setSquad([]);
-          setTeamDefinitions([]);
-          setTeams([]);
+          const initialData = { squad: [], teamDefinitions: [], teams: [] };
+          await setDoc(userDocRef, initialData);
+          setSquad(initialData.squad);
+          setTeamDefinitions(initialData.teamDefinitions);
+          setTeams(initialData.teams);
         }
         setLoadingData(false);
       } else {
@@ -68,6 +74,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         setSquad([]);
         setTeamDefinitions([]);
         setTeams([]);
+        setUnassignedPlayers([]);
         setLoadingData(false);
       }
     };
