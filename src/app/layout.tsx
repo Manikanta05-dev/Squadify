@@ -4,6 +4,7 @@ import { Inter } from 'next/font/google';
 import { TeamBuilderProvider } from '@/contexts/team-builder-context';
 import { Navbar } from '@/components/navbar';
 import { Toaster } from '@/components/ui/toaster';
+import { AuthProvider } from '@/contexts/auth-context';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
@@ -20,13 +21,15 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${inter.variable} font-sans antialiased`}>
-        <TeamBuilderProvider>
-          <div className="flex flex-col min-h-screen">
-            <Navbar />
-            <main className="flex-grow">{children}</main>
-          </div>
-          <Toaster />
-        </TeamBuilderProvider>
+        <AuthProvider>
+          <TeamBuilderProvider>
+            <div className="flex flex-col min-h-screen">
+              <Navbar />
+              <main className="flex-grow">{children}</main>
+            </div>
+            <Toaster />
+          </TeamBuilderProvider>
+        </AuthProvider>
       </body>
     </html>
   );
