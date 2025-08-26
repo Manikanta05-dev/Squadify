@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, Swords, LogOut, LogIn, UserPlus } from 'lucide-react';
+import { Users, Swords, LogOut, LogIn, UserPlus, FileOutput } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from './ui/button';
 import { useAuth } from '@/contexts/auth-context';
@@ -22,7 +22,7 @@ const navLinks = [
   { href: '/squad', label: 'Squad' },
   { href: '/organize', label: 'Organize' },
   { href: '/form-teams', label: 'Form Teams' },
-  { href: '/export', label: 'Export' },
+  { href: '/teams', label: 'Teams' },
 ];
 
 export function Navbar() {
@@ -45,7 +45,7 @@ export function Navbar() {
                   href={href}
                   className={cn(
                     'transition-colors hover:text-primary',
-                    pathname === href ? 'text-primary' : 'text-muted-foreground'
+                    pathname.startsWith(href) ? 'text-primary' : 'text-muted-foreground'
                   )}
                 >
                   {label}

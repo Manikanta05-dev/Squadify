@@ -122,9 +122,9 @@ export default function FormTeamsPage() {
                      <ArrowLeft className="mr-2 h-4 w-4" /> Back to Organize
                   </Button>
                 </Link>
-              <Link href="/export">
+              <Link href="/teams">
                 <Button size="lg">
-                  Next: Export Teams <ArrowRight className="ml-2 h-4 w-4" />
+                  Next: View Teams <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
             </div>
