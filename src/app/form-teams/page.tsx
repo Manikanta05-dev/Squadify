@@ -32,11 +32,11 @@ function SquadDropZone() {
     }), [movePlayerToSquad]);
 
     return (
-        <div 
-            ref={drop} 
+        <div
+            ref={drop as unknown as React.Ref<HTMLDivElement>}
             className={`flex-grow border-2 border-dashed rounded-md transition-colors duration-200 ${isOver && canDrop ? 'bg-primary/20 border-primary' : 'border-border'}`}
         >
-             <div className="text-center text-muted-foreground p-10 h-full flex flex-col items-center justify-center">
+            <div className="text-center text-muted-foreground p-10 h-full flex flex-col items-center justify-center">
                 <Users className="h-8 w-8 mb-2" />
                 <p>Drop a player here to move them back to the squad.</p>
             </div>
@@ -113,7 +113,7 @@ export default function FormTeamsPage() {
         <div className="w-2/3 flex flex-col">
            <div className="flex-grow overflow-hidden">
              <ScrollArea className="h-full">
-                <div className="space-y-6 p-1">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-1">
                   {teams.map((team) => (
                     <TeamCard key={team.id} team={team} />
                   ))}

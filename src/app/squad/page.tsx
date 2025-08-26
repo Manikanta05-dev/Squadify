@@ -30,7 +30,7 @@ const playerSchema = z.object({
 type PlayerFormData = z.infer<typeof playerSchema>;
 
 export default function SquadPage() {
-  const { squad, addPlayer, updatePlayer, deletePlayer } = useTeamBuilder();
+  const { squad, addPlayer, updatePlayer, deletePlayer, saveData, loadingData } = useTeamBuilder();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -116,6 +116,10 @@ export default function SquadPage() {
     return <div className="flex justify-center items-center h-screen"><p>Loading...</p></div>;
   }
 
+  if (loadingData) {
+    return <div className="flex justify-center items-center h-screen"><p>Loading your squad data...</p></div>;
+  }
+
   return (
     <div className="container mx-auto p-4 md:p-8">
       <Card className="max-w-4xl mx-auto">
@@ -190,6 +194,17 @@ export default function SquadPage() {
                 </Form>
               </DialogContent>
             </Dialog>
+                         <Button 
+               onClick={async () => {
+                 console.log('Manual save triggered');
+                 console.log('Current squad:', squad);
+                 await saveData(true);
+               }} 
+               variant="outline"
+               disabled={loadingData}
+             >
+               {loadingData ? 'Loading...' : 'Save Data'}
+             </Button>
             <Button onClick={handleGeneratePlayers} disabled={isGenerating} variant="outline">
                 <Sparkles className="mr-2 h-4 w-4" /> 
                 {isGenerating ? 'Generating...' : 'Generate Players'}

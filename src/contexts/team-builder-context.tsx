@@ -5,8 +5,6 @@ import React, { createContext, useContext, useState, ReactNode, useEffect, useRe
 import { Player, TeamDefinition, Team, SelectedPlayer } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from './auth-context';
-import { doc, getDoc, setDoc, writeBatch } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 
 
@@ -19,6 +17,7 @@ interface TeamBuilderContextType {
   setTeamDefinitions: (definitions: TeamDefinition[]) => void;
   teams: Team[];
   setTeams: React.Dispatch<React.SetStateAction<Team[]>>;
+  updateTeams: (newTeams: Team[] | ((prev: Team[]) => Team[])) => void;
   unassignedPlayers: Player[];
   movePlayerToTeam: (playerId: string, teamId: string, slotIndex: number) => void;
   movePlayerToSquad: (playerId: string, fromTeamId: string, fromSlotIndex: number) => void;
@@ -31,6 +30,7 @@ interface TeamBuilderContextType {
   selectPlayerForSwap: (player: SelectedPlayer) => void;
   swapSelectedPlayers: () => void;
   clearSelection: () => void;
+  saveData: (immediate?: boolean) => Promise<void>;
 }
 
 const TeamBuilderContext = createContext<TeamBuilderContextType | undefined>(undefined);
@@ -46,103 +46,122 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
 
   const { toast } = useToast();
   
-  const isLoaded = useRef(false);
   const isSaving = useRef(false);
   const saveTimeout = useRef<NodeJS.Timeout | null>(null);
 
-
-  // Load data from Firestore
+  // Load data from SQLite database via API
   useEffect(() => {
-    const loadData = async () => {
-      if (user && !isLoaded.current) {
-        setLoadingData(true);
-        const userDocRef = doc(db, 'users', user.uid);
+    if (user) {
+      setLoadingData(true);
+      
+      const loadData = async () => {
         try {
-          const docSnap = await getDoc(userDocRef);
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            const loadedSquad = data.squad || [];
-            const loadedDefs = data.teamDefinitions || [];
-            
-            setSquad(loadedSquad);
-            setTeamDefinitions(loadedDefs);
-
-            // Reconcile teams from DB with definitions
-            const loadedTeams = data.teams || [];
-            const reconciledTeams = loadedDefs.map((def: TeamDefinition) => {
-              const existingTeam = loadedTeams.find((t: Team) => t.id === def.id);
-              if (existingTeam) {
-                 const newPlayers = new Array(def.size).fill(null);
-                 existingTeam.players.slice(0, def.size).forEach((p: Player | null, i: number) => {
-                   if(p) newPlayers[i] = p;
-                 });
-                 return { ...existingTeam, players: newPlayers, size: def.size, name: def.name };
-              }
-              return {
-                id: def.id,
-                name: def.name,
-                players: new Array(def.size).fill(null),
-              };
-            });
-            setTeams(reconciledTeams);
-
-          } else {
-             // If document doesn't exist, it might be a new user, set initial empty state
-             const batch = writeBatch(db);
-             batch.set(userDocRef, { squad: [], teamDefinitions: [], teams: [] });
-             await batch.commit();
+          const response = await fetch('/api/database');
+          if (!response.ok) {
+            throw new Error('Failed to load data');
           }
+          
+          const data = await response.json();
+          const { players: loadedSquad, teamDefinitions: loadedDefs, teams: loadedTeams } = data;
+
+          console.log('Loaded data from SQLite API:', { loadedSquad, loadedDefs, loadedTeams });
+
+          setSquad(loadedSquad);
+          setTeamDefinitions(loadedDefs);
+
+          // Reconcile teams from DB with definitions
+          const reconciledTeams = loadedDefs.map((def: TeamDefinition) => {
+            const existingTeam = loadedTeams.find((t: Team) => t.id === def.id);
+            if (existingTeam) {
+              const newPlayers = new Array(def.size).fill(null);
+              existingTeam.players.slice(0, def.size).forEach((p: Player | null, i: number) => {
+                if (p) newPlayers[i] = p;
+              });
+              return { ...existingTeam, players: newPlayers, size: def.size, name: def.name };
+            }
+            return {
+              id: def.id,
+              name: def.name,
+              players: new Array(def.size).fill(null),
+            };
+          });
+          setTeams(reconciledTeams);
         } catch (error) {
-            console.error("Failed to load data:", error);
-            toast({ title: "Error Loading Data", description: "Could not load your saved data.", variant: "destructive" });
+          console.error('Failed to load data from SQLite API:', error);
+          toast({ title: 'Error Loading Data', description: 'Could not load your saved data.', variant: 'destructive' });
         } finally {
-            setLoadingData(false);
-            isLoaded.current = true;
+          setLoadingData(false);
         }
-      } else if (!user && !authLoading) {
-        // Reset state when user logs out
-        setSquad([]);
-        setTeamDefinitions([]);
-        setTeams([]);
-        setSelectedPlayer(null);
-        isLoaded.current = false;
-        setLoadingData(true);
-      }
-    };
-    loadData();
+      };
+
+      loadData();
+    } else if (!authLoading) {
+      // Reset state when user logs out
+      setSquad([]);
+      setTeamDefinitions([]);
+      setTeams([]);
+      setSelectedPlayer(null);
+      setLoadingData(false);
+    }
   }, [user, authLoading, toast]);
 
 
-  const saveData = useCallback(() => {
-    if (authLoading || !isLoaded.current || !user || isSaving.current) {
+    const saveData = useCallback(async (immediate = false) => {
+    if (authLoading || !user || isSaving.current) {
       return;
     }
 
-    if (saveTimeout.current) {
+    if (saveTimeout.current && !immediate) {
       clearTimeout(saveTimeout.current);
     }
 
-    saveTimeout.current = setTimeout(async () => {
+    const performSave = async () => {
       isSaving.current = true;
       const dataToSave = { squad, teamDefinitions, teams };
 
       try {
-        const userDocRef = doc(db, 'users', user.uid);
-        await setDoc(userDocRef, dataToSave, { merge: true });
+        // Save all data to SQLite via API
+        const response = await fetch('/api/database', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'saveAll',
+            data: { squad, teamDefinitions, teams }
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to save data');
+        }
+
+        console.log('Data saved successfully to SQLite:', dataToSave); // Debug log
+        if (immediate) {
+          toast({ title: "Data Saved", description: "Your squad and team data has been saved successfully." });
+        }
       } catch (error) {
-        console.error("Failed to save data:", error);
+        console.error("Failed to save data to SQLite:", error);
         toast({ title: "Save Error", description: "Failed to save your changes.", variant: "destructive" });
       } finally {
         isSaving.current = false;
         saveTimeout.current = null;
       }
-    }, 1200);
+    };
+
+    if (immediate) {
+      await performSave();
+    } else {
+      saveTimeout.current = setTimeout(performSave, 1000);
+    }
   }, [squad, teamDefinitions, teams, user, authLoading, toast]);
   
-  // Unified save effect
+  // Unified save effect - only save when data is loaded and user is authenticated
   useEffect(() => {
-    saveData();
-  }, [squad, teamDefinitions, teams, saveData]);
+    if (!loadingData && user && !authLoading) {
+      saveData();
+    }
+  }, [squad, teamDefinitions, teams, saveData, loadingData, user, authLoading]);
 
 
   const handleSetTeamDefinitions = (newDefinitions: TeamDefinition[]) => {
@@ -177,24 +196,91 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
     setUnassignedPlayers(squad.filter(p => !assignedPlayerIds.has(p.id)));
   }, [squad, teams, loadingData]);
 
-  const addPlayer = (player: Omit<Player, 'id'>) => {
-    setSquad(s => [...s, { ...player, id: uuidv4() }]);
+  const addPlayer = async (player: Omit<Player, 'id'>) => {
+    const newPlayer = { ...player, id: uuidv4() };
+    console.log('Adding player:', newPlayer);
+    
+    try {
+      const response = await fetch('/api/database', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'addPlayer',
+          data: { player: newPlayer }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to add player');
+      }
+
+      setSquad(s => {
+        const newSquad = [...s, newPlayer];
+        console.log('Updated squad:', newSquad);
+        return newSquad;
+      });
+    } catch (error) {
+      console.error('Failed to add player to database:', error);
+      toast({ title: "Error", description: "Failed to add player to database.", variant: "destructive" });
+    }
   };
 
-  const updatePlayer = (updatedPlayer: Player) => {
-     setSquad(s => s.map(p => p.id === updatedPlayer.id ? updatedPlayer : p));
-     setTeams(currentTeams => currentTeams.map(team => ({
-         ...team,
-         players: team.players.map(p => p?.id === updatedPlayer.id ? updatedPlayer : p)
-     })));
+    const updatePlayer = async (updatedPlayer: Player) => {
+    try {
+      const response = await fetch('/api/database', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'updatePlayer',
+          data: { player: updatedPlayer }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update player');
+      }
+
+      setSquad(s => s.map(p => p.id === updatedPlayer.id ? updatedPlayer : p));
+      setTeams(currentTeams => currentTeams.map(team => ({
+          ...team,
+          players: team.players.map(p => p?.id === updatedPlayer.id ? updatedPlayer : p)
+      })));
+    } catch (error) {
+      console.error('Failed to update player in database:', error);
+      toast({ title: "Error", description: "Failed to update player in database.", variant: "destructive" });
+    }
   };
 
-  const deletePlayer = (playerId: string) => {
-    setSquad(s => s.filter(p => p.id !== playerId));
-    setTeams(currentTeams => currentTeams.map(team => ({
-        ...team,
-        players: team.players.map(p => p?.id === playerId ? null : p)
-    })));
+  const deletePlayer = async (playerId: string) => {
+    try {
+      const response = await fetch('/api/database', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'deletePlayer',
+          data: { playerId }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete player');
+      }
+
+      setSquad(s => s.filter(p => p.id !== playerId));
+      setTeams(currentTeams => currentTeams.map(team => ({
+          ...team,
+          players: team.players.map(p => p?.id === playerId ? null : p)
+      })));
+    } catch (error) {
+      console.error('Failed to delete player from database:', error);
+      toast({ title: "Error", description: "Failed to delete player from database.", variant: "destructive" });
+    }
   };
 
   const movePlayerToTeam = (playerId: string, teamId: string, slotIndex: number) => {
@@ -307,15 +393,49 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
     setSelectedPlayer(null);
   };
 
+  // Custom function to update teams with database persistence
+  const updateTeams = async (newTeams: Team[] | ((prev: Team[]) => Team[])) => {
+    const updatedTeams = typeof newTeams === 'function' ? newTeams(teams) : newTeams;
+    
+    try {
+      // Update teams in database via API
+      for (const team of updatedTeams) {
+        const definition = teamDefinitions.find(def => def.id === team.id);
+        if (definition) {
+          const response = await fetch('/api/database', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              action: 'updateTeam',
+              data: { team }
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to update team');
+          }
+        }
+      }
+      
+      setTeams(updatedTeams);
+    } catch (error) {
+      console.error('Failed to update teams in database:', error);
+      toast({ title: "Error", description: "Failed to update teams in database.", variant: "destructive" });
+    }
+  };
+
   return (
     <TeamBuilderContext.Provider value={{
       squad, addPlayer, updatePlayer, deletePlayer,
       teamDefinitions, setTeamDefinitions: handleSetTeamDefinitions,
-      teams, setTeams,
+      teams, setTeams, updateTeams,
       unassignedPlayers,
       movePlayerToTeam, movePlayerToSquad, swapPlayers,
       loadingData,
-      selectedPlayer, selectPlayerForSwap, swapSelectedPlayers, clearSelection
+      selectedPlayer, selectPlayerForSwap, swapSelectedPlayers, clearSelection,
+      saveData
     }}>
       {children}
     </TeamBuilderContext.Provider>
