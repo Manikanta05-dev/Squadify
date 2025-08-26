@@ -9,7 +9,7 @@ import { TeamCard } from '@/components/team-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Users, Loader } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useDrop } from 'react-dnd';
@@ -45,18 +45,23 @@ function SquadDropZone() {
 }
 
 export default function FormTeamsPage() {
-  const { unassignedPlayers, teams } = useTeamBuilder();
+  const { unassignedPlayers, teams, loadingData, teamDefinitions } = useTeamBuilder();
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  if (!isClient) {
-    return null; // or a loading skeleton
+  if (!isClient || loadingData) {
+    return (
+        <div className="flex justify-center items-center h-[calc(100vh-8rem)]">
+            <Loader className="h-8 w-8 animate-spin" />
+            <p className="ml-2">Loading your teams...</p>
+        </div>
+    );
   }
 
-  if (teams.length === 0) {
+  if (teamDefinitions.length === 0) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex flex-col items-center justify-center h-[calc(100vh-10rem)]">
         <Card className="text-center p-8">

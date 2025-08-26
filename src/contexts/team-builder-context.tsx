@@ -50,10 +50,28 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
           if (docSnap.exists()) {
             const data = docSnap.data();
             setSquad(data.squad || []);
-            setTeamDefinitions(data.teamDefinitions || []);
-            setTeams(data.teams || []);
+            const loadedDefs = data.teamDefinitions || [];
+            const loadedTeams = data.teams || [];
+            setTeamDefinitions(loadedDefs);
+
+            // Reconcile loaded teams with definitions
+            const reconciledTeams = loadedDefs.map((def: TeamDefinition) => {
+              const existingTeam = loadedTeams.find((t: Team) => t.id === def.id);
+              const players = new Array(def.size).fill(null);
+              if (existingTeam) {
+                existingTeam.players.slice(0, def.size).forEach((p: Player | null, i: number) => {
+                  players[i] = p;
+                });
+              }
+              return {
+                id: def.id,
+                name: def.name,
+                players: players,
+              };
+            });
+            setTeams(reconciledTeams);
           } else {
-            console.log("No such document! Creating one for new user.");
+            console.log("No such document! Will be created on first save.");
           }
         } catch (error) {
             console.error("Failed to load data:", error);
@@ -66,7 +84,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         setSquad([]);
         setTeamDefinitions([]);
         setTeams([]);
-        setLoadingData(false);
+        setLoadingData(true); // Reset loading state for next user
         isLoaded.current = false;
       }
     };
@@ -76,7 +94,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   // Unified save effect
   useEffect(() => {
     const saveData = async () => {
-        if (!user || loadingData || authLoading || !isLoaded.current || isSaving.current) return;
+        if (!user || authLoading || !isLoaded.current || isSaving.current) return;
         
         isSaving.current = true;
         try {
@@ -90,21 +108,17 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
     };
     
     saveData();
-  }, [squad, teamDefinitions, teams, user, loadingData, authLoading]);
+  }, [squad, teamDefinitions, teams, user, authLoading]);
 
 
-  // Effect to derive teams from team definitions
-  useEffect(() => {
-    if (loadingData) return;
-
+  const handleSetTeamDefinitions = (definitions: TeamDefinition[]) => {
+    setTeamDefinitions(definitions);
     setTeams(currentTeams => {
-        const newTeams = teamDefinitions.map(def => {
+        const newTeams = definitions.map(def => {
             const existingTeam = currentTeams.find(t => t.id === def.id);
-            const playerArraySize = Math.max(existingTeam?.players.length || 0, def.size);
             const newPlayers = new Array(def.size).fill(null);
             
             if (existingTeam) {
-                // Copy existing players up to the new size limit
                 existingTeam.players.slice(0, def.size).forEach((p, i) => {
                     newPlayers[i] = p;
                 });
@@ -117,16 +131,10 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
             };
         });
 
-        // Filter out teams that no longer have a definition
-        const finalTeams = newTeams.filter(t => teamDefinitions.some(def => def.id === t.id));
-        
-        // Only update state if there's a meaningful change
-        if (JSON.stringify(finalTeams) !== JSON.stringify(currentTeams)) {
-            return finalTeams;
-        }
-        return currentTeams;
+        const finalTeams = newTeams.filter(t => definitions.some(def => def.id === t.id));
+        return finalTeams;
     });
-  }, [teamDefinitions, loadingData]);
+  };
 
   // Effect to derive unassigned players
   useEffect(() => {
@@ -157,38 +165,33 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const movePlayerToTeam = (playerId: string, teamId: string, slotIndex: number) => {
-    const player = squad.find(p => p.id === playerId);
+    const player = squad.find(p => p.id === playerId) || teams.flatMap(t => t.players).find(p => p?.id === playerId);
     if (!player) return;
 
     setTeams(currentTeams => {
-        let playerFoundAndMoved = false;
-        const newTeams = currentTeams.map(t => {
-            const teamPlayers = [...t.players];
-            let modified = false;
+        const newTeams = JSON.parse(JSON.stringify(currentTeams));
+        let playerRemoved = false;
 
-            // Remove from old position if exists in any team
-            const oldSlotIndex = teamPlayers.findIndex(p => p?.id === playerId);
-            if (oldSlotIndex !== -1) {
-                teamPlayers[oldSlotIndex] = null;
-                modified = true;
+        // Remove from old position
+        for (const team of newTeams) {
+            const oldIndex = team.players.findIndex((p: Player | null) => p?.id === playerId);
+            if (oldIndex !== -1) {
+                team.players[oldIndex] = null;
+                playerRemoved = true;
+                break;
             }
+        }
+        
+        // Place in new position
+        const targetTeam = newTeams.find((t:Team) => t.id === teamId);
+        if (targetTeam && targetTeam.players[slotIndex] === null) {
+            targetTeam.players[slotIndex] = player;
+        } else {
+           // If something is wrong (e.g. slot taken), revert if we removed the player
+           if(playerRemoved) return currentTeams;
+        }
 
-            // Place in new position
-            if (t.id === teamId) {
-                // If the target slot is occupied, we handle it as a swap, not a simple move.
-                // This function should only handle moves to empty slots.
-                if (teamPlayers[slotIndex] === null) {
-                    teamPlayers[slotIndex] = player;
-                    playerFoundAndMoved = true;
-                    modified = true;
-                }
-            }
-            return modified ? { ...t, players: teamPlayers } : t;
-        });
-
-        // This ensures that if the player was not moved (e.g. target slot was occupied),
-        // we don't return a state where the player was just removed from their old team.
-        return playerFoundAndMoved ? newTeams : currentTeams;
+        return newTeams;
     });
   };
 
@@ -231,7 +234,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   return (
     <TeamBuilderContext.Provider value={{
       squad, addPlayer, updatePlayer, deletePlayer,
-      teamDefinitions, setTeamDefinitions,
+      teamDefinitions, setTeamDefinitions: handleSetTeamDefinitions,
       teams, setTeams,
       unassignedPlayers,
       movePlayerToTeam, movePlayerToSquad, swapPlayers,
