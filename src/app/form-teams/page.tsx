@@ -1,3 +1,4 @@
+
 "use client";
 
 import { DndProvider } from 'react-dnd';
@@ -42,14 +43,15 @@ export default function FormTeamsPage() {
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className="container mx-auto p-4 md:p-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <Card className="lg:col-span-1">
+      <div className="flex h-[calc(100vh-8rem)] p-4 md:p-8 gap-8">
+        {/* Squad Column */}
+        <div className="w-1/3 flex flex-col">
+          <Card className="flex-grow flex flex-col">
             <CardHeader>
               <CardTitle>Squad</CardTitle>
             </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[60vh] p-4 border rounded-md">
+            <CardContent className="flex-grow overflow-hidden">
+              <ScrollArea className="h-full p-4 border rounded-md">
                 {unassignedPlayers.length > 0 ? (
                   <div className="space-y-2">
                     {unassignedPlayers.map((player) => (
@@ -57,35 +59,38 @@ export default function FormTeamsPage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center text-muted-foreground py-10">
+                  <div className="text-center text-muted-foreground py-10 h-full flex items-center justify-center">
                     All players have been assigned.
                   </div>
                 )}
               </ScrollArea>
             </CardContent>
           </Card>
-
-          <div className="lg:col-span-2">
-            <ScrollArea className="h-[calc(80vh)]">
-              <div className="space-y-6 p-1">
-                {teams.map((team) => (
-                  <TeamCard key={team.id} team={team} />
-                ))}
-              </div>
-            </ScrollArea>
-          </div>
         </div>
-        <div className="mt-8 flex justify-between">
-          <Link href="/organize">
-              <Button variant="outline" size="lg">
-                 <ArrowLeft className="mr-2 h-4 w-4" /> Back to Organize
-              </Button>
-            </Link>
-          <Link href="/export">
-            <Button size="lg">
-              Next: Export Teams <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </Link>
+
+        {/* Teams Column */}
+        <div className="w-2/3 flex flex-col">
+           <div className="flex-grow overflow-hidden">
+             <ScrollArea className="h-full">
+                <div className="space-y-6 p-1">
+                  {teams.map((team) => (
+                    <TeamCard key={team.id} team={team} />
+                  ))}
+                </div>
+              </ScrollArea>
+           </div>
+          <div className="mt-4 flex justify-between pt-4 border-t">
+              <Link href="/organize">
+                  <Button variant="outline" size="lg">
+                     <ArrowLeft className="mr-2 h-4 w-4" /> Back to Organize
+                  </Button>
+                </Link>
+              <Link href="/export">
+                <Button size="lg">
+                  Next: Export Teams <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
         </div>
       </div>
     </DndProvider>
