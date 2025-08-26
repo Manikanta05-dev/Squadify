@@ -27,7 +27,13 @@ export default function TeamsPage() {
     }
   };
   
-  if (teams.length === 0 || teamDefinitions.length === 0) {
+  const displayableTeams = teams.filter(team => {
+      const hasPlayers = team.players.some(p => p !== null);
+      const teamDefExists = teamDefinitions.some(def => def.id === team.id);
+      return hasPlayers && teamDefExists;
+  });
+
+  if (displayableTeams.length === 0) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex flex-col items-center justify-center h-[calc(100vh-10rem)]">
         <Card className="text-center p-8">

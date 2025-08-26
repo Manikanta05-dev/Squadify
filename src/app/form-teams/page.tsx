@@ -128,7 +128,7 @@ export default function FormTeamsPage() {
                 </Link>
               
               <div className="flex items-center gap-4">
-                {selectedPlayer && (
+                {selectedPlayer && selectedPlayer.length > 0 && (
                    <Button variant="ghost" onClick={clearSelection}>Clear Selection</Button>
                 )}
                 <Button size="lg" onClick={handleSwap} disabled={!selectedPlayer || selectedPlayer.length !== 2}>

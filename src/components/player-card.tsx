@@ -38,10 +38,17 @@ export function PlayerCard({ player, location }: PlayerCardProps) {
     }),
   }));
 
+  const handleRoleBlur = () => {
+    if (role !== player.skill) {
+      updatePlayer({ ...player, skill: role });
+    }
+    setIsEditingRole(false);
+  };
+
   const handleRoleChange = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      updatePlayer({ ...player, skill: role });
-      setIsEditingRole(false);
+      handleRoleBlur();
+      (e.target as HTMLInputElement).blur();
     }
     if (e.key === 'Escape') {
       setRole(player.skill);
@@ -75,7 +82,7 @@ export function PlayerCard({ player, location }: PlayerCardProps) {
           'p-2 transition-all duration-200',
           isDragging ? 'opacity-50 ring-2 ring-primary' : 'opacity-100',
           location.type === 'team' ? 'bg-card' : 'bg-muted/50',
-          isSelected && 'ring-2 ring-offset-2 ring-primary'
+          isSelected && 'ring-2 ring-offset-background ring-offset-2 ring-primary'
         )}
       >
         <CardContent className="p-0 flex items-center justify-between">
@@ -92,10 +99,7 @@ export function PlayerCard({ player, location }: PlayerCardProps) {
                     value={role} 
                     onChange={(e) => setRole(e.target.value)} 
                     onKeyDown={handleRoleChange}
-                    onBlur={() => {
-                        updatePlayer({ ...player, skill: role });
-                        setIsEditingRole(false);
-                    }}
+                    onBlur={handleRoleBlur}
                     autoFocus
                     className="h-7 text-xs w-24"
                     onClick={(e) => e.stopPropagation()}
