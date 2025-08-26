@@ -16,13 +16,13 @@ const PlayerSchema = z.object({
     skill: z.string().describe('The primary skill or role of the player (e.g., Attacker, Defender, Goalie).'),
 });
 
-export const GeneratePlayersInputSchema = z.object({
+const GeneratePlayersInputSchema = z.object({
   count: z.number().int().positive().describe('The number of players to generate.'),
   existingSkills: z.array(z.string()).describe('A list of skills already present in the squad to ensure variety.'),
 });
 export type GeneratePlayersInput = z.infer<typeof GeneratePlayersInputSchema>;
 
-export const GeneratePlayersOutputSchema = z.object({
+const GeneratePlayersOutputSchema = z.object({
   players: z.array(PlayerSchema),
 });
 export type GeneratePlayersOutput = z.infer<typeof GeneratePlayersOutputSchema>;
