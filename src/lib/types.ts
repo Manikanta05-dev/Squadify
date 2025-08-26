@@ -1,3 +1,4 @@
+
 export type Player = {
   id: string;
   name: string;
@@ -23,4 +24,10 @@ export type Team = {
   id: string; // Corresponds to TeamDefinition id
   name: string;
   players: (Player | null)[];
+};
+
+export type SelectedPlayer = {
+  playerId: string;
+  teamId: string;
+  slotIndex: number;
 };

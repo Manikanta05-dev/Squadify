@@ -1,12 +1,14 @@
 
 "use client";
 
-import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from 'react';
-import { Player, TeamDefinition, Team } from '@/lib/types';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
+import { Player, TeamDefinition, Team, SelectedPlayer } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from './auth-context';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useToast } from '@/hooks/use-toast';
+
 
 interface TeamBuilderContextType {
   squad: Player[];
@@ -25,6 +27,10 @@ interface TeamBuilderContextType {
     player2Id: string, team2Id: string, slot2Index: number
   ) => void;
   loadingData: boolean;
+  selectedPlayer: SelectedPlayer[] | null;
+  selectPlayerForSwap: (player: SelectedPlayer) => void;
+  swapSelectedPlayers: () => void;
+  clearSelection: () => void;
 }
 
 const TeamBuilderContext = createContext<TeamBuilderContextType | undefined>(undefined);
@@ -36,10 +42,14 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   const [teams, setTeams] = useState<Team[]>([]);
   const [unassignedPlayers, setUnassignedPlayers] = useState<Player[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [selectedPlayer, setSelectedPlayer] = useState<SelectedPlayer[] | null>(null);
+
+  const { toast } = useToast();
   
-  const isSaving = useRef(false);
   const isLoaded = useRef(false);
   const dataToSave = useRef<{ squad: Player[]; teamDefinitions: TeamDefinition[]; teams: Team[] } | null>(null);
+  const isSaving = useRef(false);
+
 
   // Load data from Firestore
   useEffect(() => {
@@ -53,72 +63,84 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
             const data = docSnap.data();
             const loadedSquad = data.squad || [];
             const loadedDefs = data.teamDefinitions || [];
-            const loadedTeams = data.teams || [];
             
             setSquad(loadedSquad);
             setTeamDefinitions(loadedDefs);
-            setTeams(loadedTeams);
-          } else {
-            console.log("No such document! Will be created on first save.");
+
+            // Reconcile teams from DB with definitions
+            const loadedTeams = data.teams || [];
+            const reconciledTeams = loadedDefs.map((def: TeamDefinition) => {
+              const existingTeam = loadedTeams.find((t: Team) => t.id === def.id);
+              if (existingTeam) {
+                 const newPlayers = new Array(def.size).fill(null);
+                 existingTeam.players.slice(0, def.size).forEach((p: Player | null, i: number) => {
+                   if(p) newPlayers[i] = p;
+                 });
+                 return { ...existingTeam, players: newPlayers, size: def.size, name: def.name };
+              }
+              return {
+                id: def.id,
+                name: def.name,
+                players: new Array(def.size).fill(null),
+              };
+            });
+            setTeams(reconciledTeams);
+
           }
         } catch (error) {
             console.error("Failed to load data:", error);
+            toast({ title: "Error Loading Data", description: "Could not load your saved data.", variant: "destructive" });
         } finally {
             setLoadingData(false);
             isLoaded.current = true;
         }
       } else if (!user && !authLoading) {
+        // Reset state when user logs out
         setSquad([]);
         setTeamDefinitions([]);
         setTeams([]);
-        setLoadingData(true); 
         isLoaded.current = false;
+        setLoadingData(true);
       }
     };
     loadData();
-  }, [user, authLoading]);
+  }, [user, authLoading, toast]);
+
 
   // Unified save effect
   useEffect(() => {
-    if (authLoading || !isLoaded.current) {
+    // Only save if data has been loaded and user is logged in.
+    if (authLoading || !isLoaded.current || !user) {
         return;
     }
-    dataToSave.current = { squad, teamDefinitions, teams };
 
-    const save = async () => {
-        if (!user || isSaving.current || !dataToSave.current) return;
+    const saveData = async () => {
+        if (isSaving.current) return;
         isSaving.current = true;
-        const currentData = dataToSave.current;
-        dataToSave.current = null;
+        
+        const data = { squad, teamDefinitions, teams };
+
         try {
             const userDocRef = doc(db, 'users', user.uid);
-            await setDoc(userDocRef, currentData, { merge: true });
+            await setDoc(userDocRef, data, { merge: true });
         } catch (error) {
             console.error("Failed to save data:", error);
+            toast({ title: "Save Error", description: "Failed to save your changes.", variant: "destructive" });
         } finally {
-            setTimeout(() => {
-                isSaving.current = false;
-                if (dataToSave.current) save(); // If new data came in while saving, save again
-            }, 500); 
+            isSaving.current = false;
         }
     };
-    
-    if (!isSaving.current) {
-        save();
-    }
-  }, [squad, teamDefinitions, teams, user, authLoading]);
+
+    // Debounce saving
+    const handler = setTimeout(saveData, 1000);
+    return () => clearTimeout(handler);
+
+  }, [squad, teamDefinitions, teams, user, authLoading, toast]);
 
   const handleSetTeamDefinitions = (newDefinitions: TeamDefinition[]) => {
     setTeamDefinitions(newDefinitions);
 
-    const assignedPlayersById = new Map<string, Player>();
-    teams.forEach(team => {
-        team.players.forEach(p => {
-            if (p) assignedPlayersById.set(p.id, p);
-        });
-    });
-
-    const newTeams = newDefinitions.map(def => {
+    const reconciledTeams = newDefinitions.map(def => {
         const existingTeam = teams.find(t => t.id === def.id);
         const newPlayers = new Array(def.size).fill(null);
 
@@ -126,7 +148,6 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
             existingTeam.players.slice(0, def.size).forEach((player, i) => {
                 if (player) {
                     newPlayers[i] = player;
-                    assignedPlayersById.delete(player.id);
                 }
             });
         }
@@ -138,7 +159,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         };
     });
 
-    setTeams(newTeams);
+    setTeams(reconciledTeams);
   };
 
   useEffect(() => {
@@ -168,28 +189,32 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const movePlayerToTeam = (playerId: string, teamId: string, slotIndex: number) => {
-    const player = squad.find(p => p.id === playerId) || teams.flatMap(t => t.players).find(p => p?.id === playerId);
-    if (!player) return;
+    const playerToMove = squad.find(p => p.id === playerId) || teams.flatMap(t => t.players).find(p => p?.id === playerId);
+    if (!playerToMove) return;
 
     setTeams(currentTeams => {
         const newTeams = JSON.parse(JSON.stringify(currentTeams));
-        let playerRemoved = false;
+        let alreadyInPlace = false;
 
-        // Remove from old position if it exists
+        // Remove from old position
         for (const team of newTeams) {
             const oldIndex = team.players.findIndex((p: Player | null) => p?.id === playerId);
             if (oldIndex !== -1) {
-                team.players[oldIndex] = null;
-                playerRemoved = true;
-                break;
+                if(team.id === teamId && oldIndex === slotIndex) {
+                    alreadyInPlace = true;
+                } else {
+                    team.players[oldIndex] = null;
+                }
             }
         }
+        if(alreadyInPlace) return currentTeams;
         
+        // Place in new position
         const targetTeam = newTeams.find((t:Team) => t.id === teamId);
         if (targetTeam && targetTeam.players[slotIndex] === null) {
-            targetTeam.players[slotIndex] = player;
+            targetTeam.players[slotIndex] = playerToMove;
         } else {
-           if(playerRemoved) return currentTeams;
+            // This case should ideally not happen if logic is sound, maybe log an error
         }
         return newTeams;
     });
@@ -230,6 +255,32 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
+  const selectPlayerForSwap = (player: SelectedPlayer) => {
+    setSelectedPlayer(prev => {
+        if (!prev) return [player];
+        if (prev.length === 1) {
+            if (prev[0].playerId === player.playerId) return null; // Deselect
+            return [...prev, player]; // Select second player
+        }
+        return [player]; // Start new selection
+    });
+  };
+
+  const swapSelectedPlayers = () => {
+    if (selectedPlayer && selectedPlayer.length === 2) {
+        const [p1, p2] = selectedPlayer;
+        swapPlayers(p1.playerId, p1.teamId, p1.slotIndex, p2.playerId, p2.teamId, p2.slotIndex);
+        setSelectedPlayer(null); // Clear selection after swap
+        toast({ title: "Players Swapped!", description: "The selected players have been swapped."});
+    } else {
+        toast({ title: "Selection Error", description: "You must select exactly two players to swap.", variant: "destructive" });
+    }
+  }
+
+  const clearSelection = () => {
+    setSelectedPlayer(null);
+  };
+
   return (
     <TeamBuilderContext.Provider value={{
       squad, addPlayer, updatePlayer, deletePlayer,
@@ -237,7 +288,8 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
       teams, setTeams,
       unassignedPlayers,
       movePlayerToTeam, movePlayerToSquad, swapPlayers,
-      loadingData
+      loadingData,
+      selectedPlayer, selectPlayerForSwap, swapSelectedPlayers, clearSelection
     }}>
       {children}
     </TeamBuilderContext.Provider>

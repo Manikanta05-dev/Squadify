@@ -9,7 +9,7 @@ import { TeamCard } from '@/components/team-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, Users, Loader } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Users, Loader, Shuffle } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useDrop } from 'react-dnd';
@@ -45,12 +45,16 @@ function SquadDropZone() {
 }
 
 export default function FormTeamsPage() {
-  const { unassignedPlayers, teams, loadingData, teamDefinitions } = useTeamBuilder();
+  const { unassignedPlayers, teams, loadingData, teamDefinitions, selectedPlayer, swapSelectedPlayers, clearSelection } = useTeamBuilder();
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  const handleSwap = () => {
+    swapSelectedPlayers();
+  }
 
   if (!isClient || loadingData) {
     return (
@@ -116,17 +120,27 @@ export default function FormTeamsPage() {
                 </div>
               </ScrollArea>
            </div>
-          <div className="mt-4 flex justify-between pt-4 border-t">
+           <div className="mt-4 flex justify-between items-center pt-4 border-t">
               <Link href="/organize">
                   <Button variant="outline" size="lg">
                      <ArrowLeft className="mr-2 h-4 w-4" /> Back to Organize
                   </Button>
                 </Link>
-              <Link href="/teams">
-                <Button size="lg">
-                  Next: View Teams <ArrowRight className="ml-2 h-4 w-4" />
+              
+              <div className="flex items-center gap-4">
+                {selectedPlayer && (
+                   <Button variant="ghost" onClick={clearSelection}>Clear Selection</Button>
+                )}
+                <Button size="lg" onClick={handleSwap} disabled={!selectedPlayer || selectedPlayer.length !== 2}>
+                  <Shuffle className="mr-2 h-4 w-4" />
+                  Swap Players
                 </Button>
-              </Link>
+                <Link href="/teams">
+                  <Button size="lg">
+                    Next: View Teams <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+              </div>
             </div>
         </div>
       </div>
