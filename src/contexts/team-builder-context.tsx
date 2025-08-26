@@ -39,50 +39,53 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   const [loadingData, setLoadingData] = useState(true);
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
 
-  const saveData = useCallback(async (data: { squad: Player[], teamDefinitions: TeamDefinition[], teams: Team[] }) => {
+  const saveData = useCallback(async () => {
     if (user && initialDataLoaded) {
       try {
         const userDocRef = doc(db, 'users', user.uid);
-        await setDoc(userDocRef, data, { merge: true });
+        await setDoc(userDocRef, { squad, teamDefinitions, teams }, { merge: true });
       } catch (error) {
           console.error("Failed to save data:", error);
       }
     }
-  }, [user, initialDataLoaded]);
+  }, [user, squad, teamDefinitions, teams, initialDataLoaded]);
 
   useEffect(() => {
     const loadData = async () => {
       if (user) {
         setLoadingData(true);
         const userDocRef = doc(db, 'users', user.uid);
-        const docSnap = await getDoc(userDocRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setSquad(data.squad || []);
-          setTeamDefinitions(data.teamDefinitions || []);
-          setTeams(data.teams || []);
-        } else {
-          // This case should ideally be handled by registration,
-          // but as a fallback, we can initialize here.
-          const initialData = { squad: [], teamDefinitions: [], teams: [] };
-          await setDoc(userDocRef, initialData);
-          setSquad(initialData.squad);
-          setTeamDefinitions(initialData.teamDefinitions);
-          setTeams(initialData.teams);
+        try {
+          const docSnap = await getDoc(userDocRef);
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setSquad(data.squad || []);
+            setTeamDefinitions(data.teamDefinitions || []);
+            setTeams(data.teams || []);
+          } else {
+            // For a new user, this might be called after registration.
+            // The document might not exist yet. Let's not set anything,
+            // the registration function should create the initial doc.
+          }
+        } catch (error) {
+            console.error("Failed to load data, might be offline:", error);
+        } finally {
+            setLoadingData(false);
+            setInitialDataLoaded(true);
         }
-        setLoadingData(false);
-        setInitialDataLoaded(true);
       } else if (!authLoading) {
-        // No user, clear all data
+        // No user, clear all data and reset flags
         setSquad([]);
         setTeamDefinitions([]);
         setTeams([]);
         setUnassignedPlayers([]);
         setLoadingData(false);
-        setInitialDataLoaded(false);
+        setInitialDataLoaded(false); // Reset for next user
       }
     };
-    loadData();
+    if (!authLoading) {
+      loadData();
+    }
   }, [user, authLoading]);
 
   useEffect(() => {
@@ -117,9 +120,9 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
       if (initialDataLoaded) {
-          saveData({ squad, teamDefinitions, teams });
+          saveData();
       }
-  }, [squad, teamDefinitions, teams, initialDataLoaded, saveData]);
+  }, [squad, teamDefinitions, teams, saveData]);
   
   const addPlayer = (player: Omit<Player, 'id'>) => {
     setSquad(s => [...s, { ...player, id: uuidv4() }]);
@@ -167,7 +170,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
 
         // Add to new team
         const targetTeam = newTeams.find(t => t.id === teamId);
-        if (targetTeam) {
+        if (targetTeam && targetTeam.players[slotIndex] === null) { // Check if slot is empty
             targetTeam.players[slotIndex] = player;
         }
         
@@ -202,8 +205,10 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         const team2 = newTeams.find(t => t.id === team2Id);
 
         if (team1 && team2) {
-          team1.players[slot1Index] = player2;
-          team2.players[slot2Index] = player1;
+          // Simple swap
+          const temp = team1.players[slot1Index];
+          team1.players[slot1Index] = team2.players[slot2Index];
+          team2.players[slot2Index] = temp;
         }
 
         return newTeams;
