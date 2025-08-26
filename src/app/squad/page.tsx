@@ -14,11 +14,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { PlusCircle, Edit, Trash2, ArrowRight } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, ArrowRight, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
+import { generatePlayers } from '@/ai/flows/generate-players-flow';
 
 const playerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters.'),
@@ -32,6 +33,7 @@ export default function SquadPage() {
   const { squad, addPlayer, updatePlayer, deletePlayer } = useTeamBuilder();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -51,6 +53,31 @@ export default function SquadPage() {
       skill: '',
     },
   });
+
+  const handleGeneratePlayers = async () => {
+    setIsGenerating(true);
+    try {
+        const result = await generatePlayers({
+            count: 10,
+            existingSkills: squad.map(p => p.skill)
+        });
+        result.players.forEach(player => addPlayer(player));
+        toast({
+            title: 'Players Generated!',
+            description: `${result.players.length} new players have been added to your squad.`,
+        });
+    } catch (error) {
+        console.error("Failed to generate players:", error);
+        toast({
+            title: 'Generation Failed',
+            description: 'Could not generate new players at this time.',
+            variant: 'destructive',
+        });
+    } finally {
+        setIsGenerating(false);
+    }
+  };
+
 
   const onSubmit = (data: PlayerFormData) => {
     if (editingPlayer) {
@@ -97,7 +124,7 @@ export default function SquadPage() {
           <CardDescription>Add, edit, or remove players from your squad list.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-6">
+          <div className="flex gap-2 mb-6">
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
                 <Button onClick={openNewPlayerDialog}>
@@ -163,6 +190,10 @@ export default function SquadPage() {
                 </Form>
               </DialogContent>
             </Dialog>
+            <Button onClick={handleGeneratePlayers} disabled={isGenerating} variant="outline">
+                <Sparkles className="mr-2 h-4 w-4" /> 
+                {isGenerating ? 'Generating...' : 'Generate Players'}
+            </Button>
           </div>
 
           <Card>
