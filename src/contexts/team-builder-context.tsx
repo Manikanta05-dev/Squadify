@@ -1,11 +1,11 @@
 
 "use client";
 
-import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useRef, useCallback } from 'react';
 import { Player, TeamDefinition, Team, SelectedPlayer } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from './auth-context';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 
@@ -47,8 +47,8 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   const { toast } = useToast();
   
   const isLoaded = useRef(false);
-  const dataToSave = useRef<{ squad: Player[]; teamDefinitions: TeamDefinition[]; teams: Team[] } | null>(null);
   const isSaving = useRef(false);
+  const saveTimeout = useRef<NodeJS.Timeout | null>(null);
 
 
   // Load data from Firestore
@@ -86,6 +86,11 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
             });
             setTeams(reconciledTeams);
 
+          } else {
+             // If document doesn't exist, it might be a new user, set initial empty state
+             const batch = writeBatch(db);
+             batch.set(userDocRef, { squad: [], teamDefinitions: [], teams: [] });
+             await batch.commit();
           }
         } catch (error) {
             console.error("Failed to load data:", error);
@@ -99,6 +104,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         setSquad([]);
         setTeamDefinitions([]);
         setTeams([]);
+        setSelectedPlayer(null);
         isLoaded.current = false;
         setLoadingData(true);
       }
@@ -107,35 +113,37 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
   }, [user, authLoading, toast]);
 
 
-  // Unified save effect
-  useEffect(() => {
-    // Only save if data has been loaded and user is logged in.
-    if (authLoading || !isLoaded.current || !user) {
-        return;
+  const saveData = useCallback(() => {
+    if (authLoading || !isLoaded.current || !user || isSaving.current) {
+      return;
     }
 
-    const saveData = async () => {
-        if (isSaving.current) return;
-        isSaving.current = true;
-        
-        const data = { squad, teamDefinitions, teams };
+    if (saveTimeout.current) {
+      clearTimeout(saveTimeout.current);
+    }
 
-        try {
-            const userDocRef = doc(db, 'users', user.uid);
-            await setDoc(userDocRef, data, { merge: true });
-        } catch (error) {
-            console.error("Failed to save data:", error);
-            toast({ title: "Save Error", description: "Failed to save your changes.", variant: "destructive" });
-        } finally {
-            isSaving.current = false;
-        }
-    };
+    saveTimeout.current = setTimeout(async () => {
+      isSaving.current = true;
+      const dataToSave = { squad, teamDefinitions, teams };
 
-    // Debounce saving
-    const handler = setTimeout(saveData, 1000);
-    return () => clearTimeout(handler);
-
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, dataToSave, { merge: true });
+      } catch (error) {
+        console.error("Failed to save data:", error);
+        toast({ title: "Save Error", description: "Failed to save your changes.", variant: "destructive" });
+      } finally {
+        isSaving.current = false;
+        saveTimeout.current = null;
+      }
+    }, 1200);
   }, [squad, teamDefinitions, teams, user, authLoading, toast]);
+  
+  // Unified save effect
+  useEffect(() => {
+    saveData();
+  }, [squad, teamDefinitions, teams, saveData]);
+
 
   const handleSetTeamDefinitions = (newDefinitions: TeamDefinition[]) => {
     setTeamDefinitions(newDefinitions);
@@ -145,6 +153,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         const newPlayers = new Array(def.size).fill(null);
 
         if (existingTeam) {
+            // Keep existing players up to the new size limit
             existingTeam.players.slice(0, def.size).forEach((player, i) => {
                 if (player) {
                     newPlayers[i] = player;
@@ -196,26 +205,37 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         const newTeams = JSON.parse(JSON.stringify(currentTeams));
         let alreadyInPlace = false;
 
-        // Remove from old position
+        // Remove from old position if exists
         for (const team of newTeams) {
             const oldIndex = team.players.findIndex((p: Player | null) => p?.id === playerId);
             if (oldIndex !== -1) {
                 if(team.id === teamId && oldIndex === slotIndex) {
-                    alreadyInPlace = true;
+                    alreadyInPlace = true; // Player is already in the target slot
                 } else {
                     team.players[oldIndex] = null;
                 }
             }
         }
+
         if(alreadyInPlace) return currentTeams;
         
-        // Place in new position
         const targetTeam = newTeams.find((t:Team) => t.id === teamId);
-        if (targetTeam && targetTeam.players[slotIndex] === null) {
+        
+        // Handle case where target slot is occupied by another player
+        if (targetTeam && targetTeam.players[slotIndex] !== null) {
+            // This is a swap scenario, handled by drop logic in component,
+            // or should be explicitly prevented if not desired.
+            // For now, we prevent overwriting. A proper swap should be used.
+            toast({ title: "Slot occupied", description: "This slot is already taken. Try swapping players.", variant: "destructive" });
+            return currentTeams;
+        }
+
+        if (targetTeam) {
             targetTeam.players[slotIndex] = playerToMove;
         } else {
-            // This case should ideally not happen if logic is sound, maybe log an error
+             console.error("Target team not found for move.");
         }
+
         return newTeams;
     });
   };
@@ -249,6 +269,10 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
           if(player1?.id === player1Id && player2?.id === player2Id) {
             team1.players[slot1Index] = player2;
             team2.players[slot2Index] = player1;
+          } else {
+             // This could happen if state is stale, log it.
+             console.warn("Swap prevented: Player ID mismatch.");
+             return currentTeams;
           }
         }
         return newTeams;
@@ -259,10 +283,12 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
     setSelectedPlayer(prev => {
         if (!prev) return [player];
         if (prev.length === 1) {
-            if (prev[0].playerId === player.playerId) return null; // Deselect
+            // Prevent selecting the same player twice
+            if (prev[0].playerId === player.playerId) return null;
             return [...prev, player]; // Select second player
         }
-        return [player]; // Start new selection
+        // If two are already selected, start a new selection
+        return [player];
     });
   };
 
@@ -271,7 +297,7 @@ export const TeamBuilderProvider = ({ children }: { children: ReactNode }) => {
         const [p1, p2] = selectedPlayer;
         swapPlayers(p1.playerId, p1.teamId, p1.slotIndex, p2.playerId, p2.teamId, p2.slotIndex);
         setSelectedPlayer(null); // Clear selection after swap
-        toast({ title: "Players Swapped!", description: "The selected players have been swapped."});
+        toast({ title: "Players Swapped!", description: "The selected players have been exchanged."});
     } else {
         toast({ title: "Selection Error", description: "You must select exactly two players to swap.", variant: "destructive" });
     }
