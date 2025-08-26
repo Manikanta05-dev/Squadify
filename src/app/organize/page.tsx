@@ -21,6 +21,7 @@ const roleRequirementSchema = z.object({
 });
 
 const teamDefinitionSchema = z.object({
+  id: z.string(), // Add id to the base schema
   name: z.string().min(2, "Team name must be at least 2 characters."),
   size: z.coerce.number().min(1, "Team size must be at least 1."),
   roleRequirements: z.array(roleRequirementSchema),
@@ -31,8 +32,6 @@ const formSchema = z.object({
   teams: z.array(teamDefinitionSchema),
 });
 
-type TeamDefinitionFormData = z.infer<typeof teamDefinitionSchema>;
-
 export default function OrganizePage() {
   const { setTeamDefinitions, teamDefinitions } = useTeamBuilder();
   const { toast } = useToast();
@@ -42,6 +41,7 @@ export default function OrganizePage() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       teams: teamDefinitions.length > 0 ? teamDefinitions.map(def => ({...def, size: Number(def.size)})) : [{
+        id: uuidv4(),
         name: 'Team 1',
         size: 5,
         roleRequirements: [],
@@ -56,14 +56,15 @@ export default function OrganizePage() {
   });
 
   const onSubmit = (data: z.infer<typeof formSchema>) => {
-    const definitions = data.teams.map(team => ({...team, id: uuidv4()}));
-    setTeamDefinitions(definitions);
+    // No need to map and add uuids, they are now part of the form data
+    setTeamDefinitions(data.teams);
     toast({ title: 'Team Rules Saved!', description: 'Your team structures have been defined.' });
     router.push('/form-teams');
   };
   
   const addNewTeam = () => {
     append({
+        id: uuidv4(),
         name: `Team ${fields.length + 1}`,
         size: 5,
         roleRequirements: [],
