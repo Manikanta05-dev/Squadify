@@ -20,9 +20,9 @@ export default function Home() {
               </p>
             </div>
             <div className="w-full max-w-sm mx-auto space-x-4">
-              <Link href="/squad">
+              <Link href="/register">
                 <Button size="lg" className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                  Start Building Teams <ArrowRight className="ml-2 h-4 w-4" />
+                  Get Started <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
             </div>

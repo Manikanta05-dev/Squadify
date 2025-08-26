@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -17,6 +17,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { PlusCircle, Edit, Trash2, ArrowRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
+import { useAuth } from '@/contexts/auth-context';
+import { useRouter } from 'next/navigation';
 
 const playerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters.'),
@@ -31,6 +33,15 @@ export default function SquadPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const { toast } = useToast();
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, router]);
+
 
   const form = useForm<PlayerFormData>({
     resolver: zodResolver(playerSchema),
@@ -72,6 +83,10 @@ export default function SquadPage() {
     setEditingPlayer(null);
     form.reset({ name: '', gender: 'Male', skill: '' });
     setIsDialogOpen(true);
+  }
+  
+  if (loading || !user) {
+    return <div className="flex justify-center items-center h-screen"><p>Loading...</p></div>;
   }
 
   return (

@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, Swords, LogOut, LogIn } from 'lucide-react';
+import { Users, Swords, LogOut, LogIn, UserPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from './ui/button';
 import { useAuth } from '@/contexts/auth-context';
@@ -54,7 +54,7 @@ export function Navbar() {
             </nav>
           )}
         </div>
-        <div className="ml-auto flex items-center space-x-4">
+        <div className="ml-auto flex items-center space-x-2">
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -81,12 +81,20 @@ export function Navbar() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Link href="/login">
-              <Button>
-                <LogIn className="mr-2 h-4 w-4" />
-                Login
-              </Button>
-            </Link>
+            <>
+                <Link href="/login">
+                  <Button variant="outline">
+                    <LogIn className="mr-2 h-4 w-4" />
+                    Login
+                  </Button>
+                </Link>
+                <Link href="/register">
+                  <Button>
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Sign Up
+                  </Button>
+                </Link>
+            </>
           )}
         </div>
       </div>
