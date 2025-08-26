@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useForm, useFieldArray } from 'react-hook-form';
@@ -21,7 +22,7 @@ const roleRequirementSchema = z.object({
 });
 
 const teamDefinitionSchema = z.object({
-  id: z.string(), // Add id to the base schema
+  id: z.string(),
   name: z.string().min(2, "Team name must be at least 2 characters."),
   size: z.coerce.number().min(1, "Team size must be at least 1."),
   roleRequirements: z.array(roleRequirementSchema),
@@ -29,8 +30,14 @@ const teamDefinitionSchema = z.object({
 });
 
 const formSchema = z.object({
-  teams: z.array(teamDefinitionSchema),
+  teams: z.array(teamDefinitionSchema).refine((teams) => {
+    const names = teams.map(team => team.name.toLowerCase().trim());
+    return new Set(names).size === names.length;
+  }, {
+    message: "Team names must be unique.",
+  }),
 });
+
 
 export default function OrganizePage() {
   const { setTeamDefinitions, teamDefinitions } = useTeamBuilder();
@@ -56,7 +63,6 @@ export default function OrganizePage() {
   });
 
   const onSubmit = (data: z.infer<typeof formSchema>) => {
-    // No need to map and add uuids, they are now part of the form data
     setTeamDefinitions(data.teams);
     toast({ title: 'Team Rules Saved!', description: 'Your team structures have been defined.' });
     router.push('/form-teams');
@@ -85,6 +91,12 @@ export default function OrganizePage() {
               {fields.map((field, index) => (
                 <TeamDefinitionForm key={field.id} form={form} teamIndex={index} removeTeam={() => remove(index)} />
               ))}
+
+              {form.formState.errors.teams && (
+                <p className="text-sm font-medium text-destructive">
+                  {form.formState.errors.teams.message}
+                </p>
+              )}
               
               <div className="flex justify-between items-center">
                 <Button type="button" variant="outline" onClick={addNewTeam}>
